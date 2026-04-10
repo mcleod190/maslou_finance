@@ -1,3 +1,5 @@
 .env
 service.log
 __pycache
+credentials.*
+token.*

@@ -8,6 +8,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import google.generativeai as genai
+import google_workspace
 from dotenv import load_dotenv
 
 # Setup logging
@@ -46,43 +47,21 @@ def get_credentials():
             token.write(creds.to_json())
     return creds
 
-def parse_with_gemini(subject, sender, date, body):
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    prompt = f"""
-    Extract structured data from this email.
-    Subject: {subject}
-    From: {sender}
-    Date: {date}
-    Body: {body}
-
-    Return a JSON object with these fields:
-    - sender_name
-    - sender_email
-    - category (e.g. Invoice, Notification, Personal, Newsletter)
-    - summary (one sentence)
-    - amount (if applicable, else null)
-    - date_received (ISO format)
-
-    Only return the JSON.
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        # Extract JSON from response text
-        text = response.text
-        start = text.find('{')
-        end = text.rfind('}') + 1
-        if start != -1 and end != -1:
-            return json.loads(text[start:end])
-    except Exception as e:
-        logger.error(f"Gemini parsing error: {e}")
-    return None
+def parse_with_own_brains(message):
+    parsed = {'date': str(message.date.date())}
+    parsed['success'] = 'Успешно' in message.text
+    if not parsed['success']:
+        logging.info("Unsuccessful transaction. Ignoring it..")
+        return parsed
+    parsed['merchant'] = message.text.split('\n')[-3]
+    partial = dict((a.strip(), b.strip()) 
+                   for a, b in  (element.split(':', maxsplit=1) 
+                                 for element in message.text.split('\n') if ':' in element))
+    parsed.update(partial)
+    return parsed
 
 def sync_gmail_to_sheets():
     creds = get_credentials()
-    gmail_service = build('gmail', 'v1', credentials=creds)
     sheets_service = build('sheets', 'v4', credentials=creds)
     
     spreadsheet_id = os.getenv("SPREADSHEET_ID")
@@ -91,8 +70,8 @@ def sync_gmail_to_sheets():
         return
 
     logger.info("Fetching latest messages...")
-    results = gmail_service.users().messages().list(userId='me', maxResults=10, q="is:unread").execute()
-    messages = results.get('messages', [])
+    gmail_client = google_workspace.gmail.GmailClient()
+    messages = list(gmail_client.get_messages(from_ = 'click@alfa-bank.by', seen=False))
 
     if not messages:
         logger.info("No new messages found.")
@@ -100,43 +79,25 @@ def sync_gmail_to_sheets():
 
     rows_to_append = []
     for message in messages:
-        msg = gmail_service.users().messages().get(userId='me', id=message['id']).execute()
+        logger.info(f"Processing: {message.subject}")
+        extracted = parse_with_own_brains(message)
         
-        headers = msg['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-        sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown')
-        date = next((h['value'] for h in headers if h['name'] == 'Date'), '')
-        
-        # Simple body extraction
-        body = ""
-        body = extract_body(msg)
-
-        logger.info(f"Processing: {subject}")
-        extracted = parse_with_gemini(subject, sender, date, body)
-
-        # Add a small delay to avoid hitting rate limits (429 errors)
-        time.sleep(1)
-        
-        if extracted:
+        if extracted and extracted['success']:
             rows_to_append.append([
-                extracted.get('date_received', date),
-                extracted.get('sender_name', sender),
-                extracted.get('sender_email', ''),
-                subject,
-                extracted.get('category', 'Other'),
-                extracted.get('summary', ''),
-                extracted.get('amount', ''),
-                message['id']
+                extracted.get('date'),
+                extracted.get('Сумма').split(' ')[0],
+                extracted.get('Сумма').split(' ')[-1],
+                '',
+                extracted.get('merchant')
             ])
-        else:
-            rows_to_append.append([date, sender, '', subject, 'Error', 'Failed to parse', '', message['id']])
+            message.mark_read()
 
     if rows_to_append:
         logger.info(f"Appending {len(rows_to_append)} rows to sheet...")
         sheets_service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
-            range="Sheet1!A2",
-            valueInputOption="RAW",
+            range="expenses!A:B",
+            valueInputOption="USER_ENTERED",
             body={"values": rows_to_append}
         ).execute()
         logger.info("Sync complete.")

@@ -3,3 +3,4 @@ service.log
 __pycache__
 credentials.*
 token.*
+*session*

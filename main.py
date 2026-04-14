@@ -7,8 +7,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-import google.generativeai as genai
-import google_workspace
+from google.oauth2 import service_account
+from gmail_pop import EmailClient
 from dotenv import load_dotenv
 
 # Setup logging
@@ -26,91 +26,83 @@ load_dotenv()
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/gmail.modify'
+    'https://www.googleapis.com/auth/spreadsheets'
 ]
 
-def get_credentials():
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-    return creds
 
 def parse_with_own_brains(message):
-    parsed = {'date': str(message.date.date())}
-    parsed['success'] = 'Успешно' in message.text
+    parsed = {'date': str(message.get('date').date())}
+    parsed['success'] = 'Успешно' in message.get('body')
     if not parsed['success']:
         logging.info("Unsuccessful transaction. Ignoring it..")
         return parsed
-    parsed['merchant'] = message.text.split('\n')[-3]
+    parsed['merchant'] = message.get('body').split('\n')[-3]
     partial = dict((a.strip(), b.strip()) 
                    for a, b in  (element.split(':', maxsplit=1) 
-                                 for element in message.text.split('\n') if ':' in element))
+                                 for element in message.get('body').split('\n') if ':' in element))
     parsed.update(partial)
     return parsed
 
 def sync_gmail_to_sheets():
-    creds = get_credentials()
-    sheets_service = build('sheets', 'v4', credentials=creds)
-    
-    spreadsheet_id = os.getenv("SPREADSHEET_ID")
-    if not spreadsheet_id:
-        logger.error("SPREADSHEET_ID not found in environment variables")
-        return
-
     logger.info("Fetching latest messages...")
-    gmail_client = google_workspace.gmail.GmailClient()
-    messages = list(gmail_client.get_messages(from_ = 'click@alfa-bank.by', seen=False))
-
-    if not messages:
-        logger.info("No new messages found.")
-        return
-
-    rows_to_append = []
-    for message in messages:
-        logger.info(f"Processing: {message.subject}")
-        extracted = parse_with_own_brains(message)
+    with EmailClient(os.getenv('GMAIL_USER'), os.getenv('APP_PASS'), from_='click@alfa-bank.by') as client:
+        messages = client.fetch_unread()
+        if not messages:
+            logger.info("No new messages found.")
+            return
         
-        if extracted and extracted['success']:
-            rows_to_append.append([
-                extracted.get('date'),
-                extracted.get('Сумма').split(' ')[0],
-                extracted.get('Сумма').split(' ')[-1],
-                '',
-                extracted.get('merchant')
-            ])
-            message.mark_read()
+        secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
+        creds = service_account.Credentials.from_service_account_file(
+            secret_file, scopes=SCOPES)
+        sheets_service = build('sheets', 'v4', credentials=creds)
+        
+        spreadsheet_id = os.getenv("SPREADSHEET_ID")
+        if not spreadsheet_id:
+            logger.error("SPREADSHEET_ID not found in environment variables")
+            return
 
-    if rows_to_append:
-        logger.info(f"Appending {len(rows_to_append)} rows to sheet...")
-        sheets_service.spreadsheets().values().append(
-            spreadsheetId=spreadsheet_id,
-            range="expenses!A:B",
-            valueInputOption="USER_ENTERED",
-            body={"values": rows_to_append}
-        ).execute()
-        logger.info("Sync complete.")
+        expenses_to_append = []
+        income_to_append = []
+        for message in messages:
+            logger.info(f"Processing: {message.get('subject')}")
+            extracted = parse_with_own_brains(message)
+            
+            if extracted and extracted['success']:
+                if 'Поступление' in message.get('subject'):
+                    expenses_to_append.append([
+                        extracted.get('date'),
+                        extracted.get('Сумма').split(' ')[0],
+                        extracted.get('Сумма').split(' ')[-1],
+                        '',
+                        extracted.get('merchant')
+                    ])
+                else:
+                    income_to_append.append([
+                        extracted.get('date'),
+                        extracted.get('Сумма').split(' ')[0],
+                        extracted.get('Сумма').split(' ')[-1],
+                        '',
+                        extracted.get('merchant')
+                    ])
 
-def extract_body(msg) -> str:
-    if 'parts' in msg['payload']:
-        for part in msg['payload']['parts']:
-            if part['mimeType'] == 'text/plain':
-                body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                break
-    elif 'body' in msg['payload'] and 'data' in msg['payload']['body']:
-        body = base64.urlsafe_b64decode(msg['payload']['body']['data']).decode('utf-8')
-    return body
+        if expenses_to_append:
+            logger.info(f"Appending {len(expenses_to_append)} rows to sheet...")
+            sheets_service.spreadsheets().values().append(
+                spreadsheetId=spreadsheet_id,
+                range="expenses!A:B",
+                valueInputOption="USER_ENTERED",
+                body={"values": expenses_to_append}
+            ).execute()
+
+        if income_to_append:
+            logger.info(f"Appending {len(income_to_append)} rows to sheet...")
+            sheets_service.spreadsheets().values().append(
+                spreadsheetId=spreadsheet_id,
+                range="income!A:B",
+                valueInputOption="USER_ENTERED",
+                body={"values": income_to_append}
+            ).execute()
+            logger.info("Sync complete.")
 
 def main():
     logger.info("Starting Gmail to Sheets Sync Service...")

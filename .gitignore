@@ -4,3 +4,5 @@ __pycache__
 credentials.*
 token.*
 *session*
+*.out
+secrets/*

@@ -1,11 +1,6 @@
 import os
 import time
-import json
-import base64
 import logging
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from gmail_pop import EmailClient
@@ -69,7 +64,7 @@ def sync_gmail_to_sheets():
             
             if extracted and extracted['success']:
                 if 'Поступление' in message.get('subject'):
-                    expenses_to_append.append([
+                    income_to_append.append([
                         extracted.get('date'),
                         extracted.get('Сумма').split(' ')[0],
                         extracted.get('Сумма').split(' ')[-1],
@@ -77,7 +72,7 @@ def sync_gmail_to_sheets():
                         extracted.get('merchant')
                     ])
                 else:
-                    income_to_append.append([
+                    expenses_to_append.append([
                         extracted.get('date'),
                         extracted.get('Сумма').split(' ')[0],
                         extracted.get('Сумма').split(' ')[-1],

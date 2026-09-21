@@ -49,7 +49,7 @@ def sync_gmail_to_sheets():
         secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
         creds = service_account.Credentials.from_service_account_file(
             secret_file, scopes=SCOPES)
-        sheets_service = build('sheets', 'v4', credentials=creds)
+        sheets_service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
         
         spreadsheet_id = os.getenv("SPREADSHEET_ID")
         if not spreadsheet_id:

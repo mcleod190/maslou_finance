@@ -23,8 +23,14 @@ class EmailClient:
     def disconnect_imap(self):
         """Close pop connection"""
         if self.imap:
-            self.imap.close()
-            self.imap.logout()
+            try:
+                self.imap.close()
+            except Exception:
+                pass
+            try:
+                self.imap.logout()
+            except Exception:
+                pass
     
     def fetch_unread(self, mailbox='INBOX', limit=10):
         """Fetch unread messages from specified mailbox"""
@@ -48,6 +54,9 @@ class EmailClient:
          
         except Exception as e:
             print(f"Error: {e}")
+
+        finally:
+            self.disconnect_imap()
 
     def decode_email_header(self, header):
         """Decode email headers that may contain encoded content"""

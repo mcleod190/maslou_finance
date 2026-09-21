@@ -6,3 +6,5 @@ token.*
 *session*
 *.out
 secrets/*
+*.ipynb
+.ipynb_checkpoints/

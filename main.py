@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import socket
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from gmail_pop import EmailClient
@@ -26,6 +27,14 @@ SCOPES = [
 ]
 
 
+orig_getaddrinfo = socket.getaddrinfo
+
+def forced_ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+socket.getaddrinfo = forced_ipv4_getaddrinfo
+
+
 def parse_with_own_brains(message):
     parsed = {'date': str(message.get('date').date())}
     parsed['success'] = 'Успешно' in message.get('body')
@@ -46,7 +55,7 @@ def fetch_new_transactions():
         messages = client.fetch_unread()
         if not messages:
             logger.info("No new messages found.")
-            return
+            return [], []
 
         expenses_to_append = []
         income_to_append = []
@@ -83,7 +92,6 @@ def append_to_sheet_safely(expenses_to_append, income_to_append):
     secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
     creds = service_account.Credentials.from_service_account_file(
         secret_file, scopes=SCOPES)
-  
     sheets_service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
     spreadsheet_id = os.getenv("SPREADSHEET_ID")
     if not spreadsheet_id:
@@ -113,7 +121,8 @@ def main():
     while True:
         try:
             expenses_to_append, income_to_append = fetch_new_transactions()
-            append_to_sheet_safely(expenses_to_append=expenses_to_append, income_to_append = income_to_append)
+            if expenses_to_append or income_to_append:
+                append_to_sheet_safely(expenses_to_append=expenses_to_append, income_to_append = income_to_append)
         except Exception as e:
             logger.error(f"Service error: {e}")
         

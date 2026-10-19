@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  maslou-finance:
+    image: ghcr.io/mcleod190/maslou_finance:latest
+    container_name: maslou_finance_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./secrets:/app/secrets

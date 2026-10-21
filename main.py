@@ -6,7 +6,6 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from gmail_pop import EmailClient
 from dotenv import load_dotenv
-# from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Setup logging
 logging.basicConfig(
@@ -21,11 +20,9 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# If modifying these scopes, delete the file token.json.
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-
 
 orig_getaddrinfo = socket.getaddrinfo
 
@@ -34,20 +31,18 @@ def forced_ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
 
 socket.getaddrinfo = forced_ipv4_getaddrinfo
 
-
 def parse_with_own_brains(message):
     parsed = {'date': str(message.get('date').date())}
     parsed['success'] = 'Успешно' in message.get('body')
     if not parsed['success']:
         logging.info("Unsuccessful transaction. Ignoring it..")
         return parsed
-    parsed['merchant'] = message.get('body').split('\n')[-3]
+    parsed['merchant'] = message.get('body').split('')[-3]
     partial = dict((a.strip(), b.strip()) 
-                   for a, b in  (element.split(':', maxsplit=1) 
-                                 for element in message.get('body').split('\n') if ':' in element))
+                   for a, b in (element.split(':', maxsplit=1) 
+                                 for element in message.get('body').split('') if ':' in element))
     parsed.update(partial)
     return parsed
-
 
 def fetch_new_transactions():
     logger.info("Fetching latest messages...")
@@ -82,17 +77,7 @@ def fetch_new_transactions():
                     ])
         return expenses_to_append, income_to_append
 
-    
-# @retry(
-#     stop=stop_after_attempt(5), 
-#     wait=wait_exponential(multiplier=1, min=2, max=10),
-#     reraise=True
-# )
-def append_to_sheet_safely(expenses_to_append, income_to_append):
-    secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
-    creds = service_account.Credentials.from_service_account_file(
-        secret_file, scopes=SCOPES)
-    sheets_service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
+def append_to_sheet_safely(sheets_service, expenses_to_append, income_to_append):
     spreadsheet_id = os.getenv("SPREADSHEET_ID")
     if not spreadsheet_id:
         logger.error("SPREADSHEET_ID not found in environment variables")
@@ -118,15 +103,30 @@ def append_to_sheet_safely(expenses_to_append, income_to_append):
 
 def main():
     logger.info("Starting Gmail to Sheets Sync Service...")
+    
+    # Initialize the Google Sheets client ONCE outside the loop
+    logger.info("Initializing global Google Sheets API client...")
+    try:
+        secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
+        creds = service_account.Credentials.from_service_account_file(
+            secret_file, scopes=SCOPES)
+        sheets_service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
+    except Exception as e:
+        logger.error(f"Critical initialization error: {e}")
+        return
+
     while True:
         try:
             expenses_to_append, income_to_append = fetch_new_transactions()
             if expenses_to_append or income_to_append:
-                append_to_sheet_safely(expenses_to_append=expenses_to_append, income_to_append = income_to_append)
+                append_to_sheet_safely(
+                    sheets_service=sheets_service, 
+                    expenses_to_append=expenses_to_append, 
+                    income_to_append=income_to_append
+                )
         except Exception as e:
             logger.error(f"Service error: {e}")
         
-        # Wait for 10 minutes before next sync
         logger.info("Sleeping for 10 minutes...")
         time.sleep(600)
 

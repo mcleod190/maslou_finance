@@ -37,10 +37,10 @@ def parse_with_own_brains(message):
     if not parsed['success']:
         logging.info("Unsuccessful transaction. Ignoring it..")
         return parsed
-    parsed['merchant'] = message.get('body').split('')[-3]
+    parsed['merchant'] = message.get('body').split('\n')[-3]
     partial = dict((a.strip(), b.strip()) 
                    for a, b in (element.split(':', maxsplit=1) 
-                                 for element in message.get('body').split('') if ':' in element))
+                                 for element in message.get('body').split('\n') if ':' in element))
     parsed.update(partial)
     return parsed
 

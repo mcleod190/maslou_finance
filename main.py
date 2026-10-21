@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from gmail_pop import EmailClient
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential
+# from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Setup logging
 logging.basicConfig(
@@ -83,11 +83,11 @@ def fetch_new_transactions():
         return expenses_to_append, income_to_append
 
     
-@retry(
-    stop=stop_after_attempt(5), 
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    reraise=True
-)
+# @retry(
+#     stop=stop_after_attempt(5), 
+#     wait=wait_exponential(multiplier=1, min=2, max=10),
+#     reraise=True
+# )
 def append_to_sheet_safely(expenses_to_append, income_to_append):
     secret_file = os.path.join('./secrets', os.getenv('CRED_FILE'))
     creds = service_account.Credentials.from_service_account_file(
@@ -104,7 +104,7 @@ def append_to_sheet_safely(expenses_to_append, income_to_append):
             range="expenses!A:B",
             valueInputOption="USER_ENTERED",
             body={"values": expenses_to_append}
-        ).execute(num_retries=2)
+        ).execute()
 
     if income_to_append:
         logger.info(f"Appending {len(income_to_append)} rows to sheet...")

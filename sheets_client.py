@@ -87,7 +87,7 @@ def add_expense_row(
         date_str,
         amount_str,
         currency.strip(),
-        category.strip(),
+        category.strip().capitalize(),
         description.strip()
     ]
 
@@ -153,7 +153,7 @@ def get_monthly_expenses_summary(sheets_service, year: int | None = None, month:
         except (ValueError, TypeError):
             continue
 
-        category = raw_category.strip() if raw_category else "Без категории"
+        category = raw_category.strip().capitalize() if raw_category else "Без категории"
         by_category[category] = by_category.get(category, 0.0) + amount_val
         grand_total += amount_val
         count += 1

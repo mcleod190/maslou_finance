@@ -27,7 +27,7 @@ class TestSheetsClient(unittest.TestCase):
             currency="BYN",
             date_str="2026-10-28"
         )
-        self.assertEqual(row, ["2026-10-28", "15.5", "BYN", "кафе", "кофе с круассаном"])
+        self.assertEqual(row, ["2026-10-28", "15.5", "BYN", "Кафе", "кофе с круассаном"])
         mock_values.append.assert_called_once()
 
     def test_get_monthly_expenses_summary(self):
@@ -39,7 +39,7 @@ class TestSheetsClient(unittest.TestCase):
             ["Date", "Amount", "Currency", "Category", "Merchant"],  # Header
             ["2026-10-01", "100.00", "BYN", "продукты", "Евроопт"],
             ["2026-10-05", "25.50", "BYN", "кафе", "Кофейня"],
-            ["2026-10-15", "50", "BYN", "продукты", "Соседи"],
+            ["2026-10-15", "50", "BYN", "Продукты", "Соседи"],
             ["2026-10-20", "30.00", "BYN", "", "Неизвестный перевод"],  # Empty category
             ["2026-09-25", "200.00", "BYN", "продукты", "Прошлый месяц"],  # Previous month
         ]
@@ -50,8 +50,8 @@ class TestSheetsClient(unittest.TestCase):
         self.assertEqual(summary["month"], 10)
         self.assertEqual(summary["transaction_count"], 4)
         self.assertAlmostEqual(summary["grand_total"], 205.50)
-        self.assertAlmostEqual(summary["by_category"]["продукты"], 150.00)
-        self.assertAlmostEqual(summary["by_category"]["кафе"], 25.50)
+        self.assertAlmostEqual(summary["by_category"]["Продукты"], 150.00)
+        self.assertAlmostEqual(summary["by_category"]["Кафе"], 25.50)
         self.assertAlmostEqual(summary["by_category"]["Без категории"], 30.00)
         self.assertNotIn("Прошлый месяц", str(summary))
 
@@ -116,7 +116,7 @@ class TestTelegramBot(unittest.TestCase):
 
         bot.reply_to.assert_called()
         self.assertIn("Расходы за", bot.reply_to.call_args[0][1])
-        self.assertIn("кафе", bot.reply_to.call_args[0][1])
+        self.assertIn("Кафе", bot.reply_to.call_args[0][1])
 
 
 if __name__ == "__main__":

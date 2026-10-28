@@ -77,7 +77,7 @@ def create_bot(sheets_service) -> telebot.TeleBot | None:
             return
 
         raw_amount = parts[1].replace(',', '.')
-        category = parts[2]
+        category = parts[2].strip().capitalize()
         description = parts[3] if len(parts) > 3 else ""
 
         try:

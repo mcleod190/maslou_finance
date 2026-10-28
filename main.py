@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from gmail_pop import EmailClient
+from sheets_client import init_sheets_service, append_rows
+from telegram_bot import start_bot_thread
 
 # Setup logging with rotating file handler
 log_handler = RotatingFileHandler("service.log", maxBytes=5 * 1024 * 1024, backupCount=3)
@@ -149,47 +151,11 @@ def fetch_new_transactions():
 
 def append_to_sheet_safely(sheets_service, expenses_to_append, income_to_append):
     """Safely append transactions to the expenses and income sheets."""
-    spreadsheet_id = os.getenv("SPREADSHEET_ID")
-    if not spreadsheet_id:
-        logger.error("SPREADSHEET_ID not found in environment variables")
-        return
-
-    targets = [
-        ("expenses", expenses_to_append),
-        ("income", income_to_append),
-    ]
-
-    for sheet_name, rows in targets:
-        if not rows:
-            continue
-        logger.info(f"Appending {len(rows)} rows to sheet '{sheet_name}'...")
-        sheets_service.spreadsheets().values().append(
-            spreadsheetId=spreadsheet_id,
-            range=f"{sheet_name}!A:E",
-            valueInputOption="USER_ENTERED",
-            body={"values": rows}
-        ).execute(num_retries=3)
-
+    if expenses_to_append:
+        append_rows(sheets_service, "expenses", expenses_to_append)
+    if income_to_append:
+        append_rows(sheets_service, "income", income_to_append)
     logger.info("Sync complete.")
-
-
-def init_sheets_service():
-    """Initialize and return Google Sheets API client."""
-    cred_file_name = os.getenv('CRED_FILE')
-    if not cred_file_name:
-        raise ValueError("CRED_FILE is not set in environment.")
-
-    secret_file = BASE_DIR / 'secrets' / cred_file_name
-    if not secret_file.is_file():
-        # Fallback to local secrets directory if needed
-        secret_file = Path('secrets') / cred_file_name
-        if not secret_file.is_file():
-            raise FileNotFoundError(f"Credentials file not found: {cred_file_name}")
-
-    creds = service_account.Credentials.from_service_account_file(
-        str(secret_file), scopes=SCOPES
-    )
-    return build('sheets', 'v4', credentials=creds, cache_discovery=False)
 
 
 def main():
@@ -200,12 +166,15 @@ def main():
             logger.error(f"Missing required environment variable: {var}")
             sys.exit(1)
 
-    logger.info("Initializing global Google Sheets API client...")
+    logger.info("Initializing Google Sheets API client...")
     try:
         sheets_service = init_sheets_service()
     except Exception as e:
         logger.error(f"Critical initialization error: {e}", exc_info=True)
         return
+
+    # Start Telegram Bot in background thread if configured
+    bot, bot_thread = start_bot_thread(sheets_service)
 
     poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "600"))
 
@@ -226,6 +195,13 @@ def main():
             if not running:
                 break
             time.sleep(1)
+
+    if bot:
+        logger.info("Stopping Telegram bot...")
+        try:
+            bot.stop_polling()
+        except Exception as e:
+            logger.warning(f"Error stopping Telegram bot: {e}")
 
     logger.info("Service shut down cleanly.")
 

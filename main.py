@@ -97,7 +97,7 @@ def parse_with_own_brains(message: dict) -> dict:
     merchant = parsed.get('Пункт обслуживания') or parsed.get('Место') or parsed.get('Получатель')
     if not merchant:
         if len(body_lines) >= 3:
-            merchant = body_lines[-3]
+            merchant = body_lines[-2]
         elif body_lines:
             merchant = body_lines[-1]
         else:
